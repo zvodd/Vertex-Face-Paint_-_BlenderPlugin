@@ -2,8 +2,11 @@ import bpy
 import bmesh
 from mathutils import Vector
 from bpy.types import WorkSpaceTool
-from bl_ui.properties_paint_common import UnifiedPaintPanel
 from bpy_extras import view3d_utils
+from bl_ui.properties_paint_common import (
+    ColorPalettePanel,
+    UnifiedPaintPanel
+)
 
 class CustomVertexPaintTool(WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
@@ -21,27 +24,35 @@ class CustomVertexPaintTool(WorkSpaceTool):
     @classmethod
     def draw_settings(cls, context, layout, tool):
         props = tool.operator_properties("vertex_face_paint.operator")
-        vbrush = context.tool_settings.vertex_paint.brush
-        vpalette = context.tool_settings.vertex_paint.palette
+        vpaint_settings = context.tool_settings.vertex_paint
+        vbrush = vpaint_settings.brush
+        vpalette = vpaint_settings.palette
         
         # Use split layout for primary and secondary colors
-        row = layout.row()
-        split = row.split(factor=0.5)
-        UnifiedPaintPanel.prop_unified_color(split, context, vbrush, "color")
-        UnifiedPaintPanel.prop_unified_color(split, context, vbrush, "secondary_color")
+        #row = layout.row()
+        split = layout.split(factor=0.5)
+        split.prop(vbrush, "color")
+        split.prop(vbrush, "secondary_color")
+        #UnifiedPaintPanel.prop_unified_color(split, context, vbrush, "color")
+        #UnifiedPaintPanel.prop_unified_color(split, context, vbrush, "secondary_color")
         
         # Add blend mode and strength
         layout.prop(vbrush, "blend", text="Blend Mode")
         layout.prop(vbrush, "strength", slider=True)
         
         layout.separator()
-        layout.prop(props, "brush_alpha")
-        layout.prop(props, "apply_alpha")
 
+        [panel_c_head, panel_c] = layout.panel(idname="vertex_face_paint.colorpalettepanel")
+        panel_c_head.label(text="Color Palette")
         # Add color palette if available
+        panel_c.template_ID(vpaint_settings, "palette", new="palette.new")
         if vpalette:
-            layout.label(text="Color Palette:")
-            layout.template_palette(context.tool_settings.vertex_paint, "palette", color=True)
+            panel_c.template_palette(vpaint_settings, "palette", color=True)
+
+        [panel_a_head, panel_a] = layout.panel(idname="vertex_face_paint.alphachannelpanel")
+        panel_a_head.label(text="Alpha Channel")
+        panel_a.prop(props, "brush_alpha")
+        panel_a.prop(props, "apply_alpha")
 
 class CustomVertexPaintOperator(bpy.types.Operator):
     bl_idname = "vertex_face_paint.operator"
