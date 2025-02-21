@@ -21,48 +21,58 @@ class CustomVertexPaintTool(WorkSpaceTool):
     @classmethod
     def draw_settings(cls, context, layout, tool):
         props = tool.operator_properties("vertex_face_paint.operator")
-        brush = context.tool_settings.vertex_paint.brush
+        vbrush = context.tool_settings.vertex_paint.brush
+        vpalette = context.tool_settings.vertex_paint.palette
         
-        # Add Unified Paint Panel color settings
-        col = layout.column()
-        UnifiedPaintPanel.prop_unified_color(col, context, brush, "color", text="")
-        col.prop(brush, "use_gradient", text="Gradient")
+        # Use split layout for primary and secondary colors
+        row = layout.row()
+        split = row.split(factor=0.5)
+        UnifiedPaintPanel.prop_unified_color(split, context, vbrush, "color")
+        UnifiedPaintPanel.prop_unified_color(split, context, vbrush, "secondary_color")
         
-        # Add brush settings
-        col = layout.column(align=True)
-        col.prop(brush, "strength", slider=True)
-        col.prop(props, "brush_alpha", slider=True)
-        col.prop(props, "apply_alpha")
+        # Add blend mode and strength
+        layout.prop(vbrush, "blend", text="Blend Mode")
+        layout.prop(vbrush, "strength", slider=True)
+        
+
+        # Add color palette if available
+        if vpalette:
+            layout.label(text="Color Palette:")
+            layout.template_palette(context.tool_settings.vertex_paint, "palette", color=True)
 
 class CustomVertexPaintOperator(bpy.types.Operator):
     bl_idname = "vertex_face_paint.operator"
     bl_label = "Vertex Face Paint"
     bl_options = {'REGISTER', 'UNDO'}
 
+
+    apply_alpha: bpy.props.BoolProperty(
+        name="Apply Alpha Value",
+        description="Vertices colors will include an alpha value, supplied by the preference and is NOT blended.",
+        default=False,
+    )
     brush_alpha: bpy.props.FloatProperty(
-        name="Alpha",
-        default=1.0,
+        name="Alpha Value",
+        default=(1.0),
         min=0.0,
         max=1.0
-    )
-    apply_alpha: bpy.props.BoolProperty(
-        name="Apply Alpha",
-        default=False,
     )
 
     _did_paint = False
 
     def modal(self, context, event):
+        #TODO Undo support
+        #TODO brush speed
         if event.type == 'MOUSEMOVE':
             self._did_paint = True
             self.paint(context, event)
-        elif event.type == 'LEFTMOUSE':
-            if event.value == 'RELEASE':
-                if self._did_paint:
-                    self._did_paint = False
-                else: 
-                    self.paint(context, event)
-                return {'FINISHED'}
+        elif event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            if self._did_paint:
+                self._did_paint = False
+            else:
+                self.paint(context, event)
+                self._did_paint = True
+            return {'FINISHED'}
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
             self._did_paint = False
             return {'CANCELLED'}
@@ -95,19 +105,50 @@ class CustomVertexPaintOperator(bpy.types.Operator):
         view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
         ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
         
-        hit, location, normal, face_index, object, matrix = context.scene.ray_cast(
+        hit, _, _, face_index, _, _ = context.scene.ray_cast(
             context.view_layer.depsgraph, ray_origin, view_vector)
         
         if hit:
             face = obj.data.polygons[face_index]
             for loop_index in face.loop_indices:
-                alpha = self.brush_alpha * brush.strength
-                if not self.apply_alpha:
-                    alpha = Vector(vertex_color_layer.data[loop_index].color).w
-                new_color = Vector((brush_color.r, brush_color.g, brush_color.b, alpha))
+                current_color = vertex_color_layer.data[loop_index].color
+                if self.apply_alpha:
+                     alpha = current_color.w
+                     current_color.w = alpha
+                new_color = self.blend_colors(current_color, brush_color, brush.strength, brush.blend)
                 vertex_color_layer.data[loop_index].color = new_color
         
+
+        
         obj.data.update()
+
+    @staticmethod
+    def blend_colors(current_color, brush_color, strength, blend_mode):
+        def clamp01(x):
+            return min(max(x, 0.0), 1.0)
+        
+        cr, cg, cb, ca = current_color
+        br, bg, bb = brush_color.r, brush_color.g, brush_color.b
+        
+        #TODO Blend modes
+        # Overlay blend mode for RGB
+        if blend_mode == 'OVERLAY':
+            rgb = []
+            for base, overlay in zip((cr, cg, cb), (br, bg, bb)):
+                if overlay <= 0.5:
+                    result = 2 * base * overlay
+                else:
+                    result = 1 - 2 * (1 - base) * (1 - overlay)
+                blended = base * (1 - strength) + result * strength
+                rgb.append(clamp01(blended))
+            r, g, b = rgb
+        else:  # Fallback to Mix if overlay isn't selected
+            r = cr * (1 - strength) + br * strength
+            g = cg * (1 - strength) + bg * strength
+            b = cb * (1 - strength) + bb * strength
+            r, g, b = clamp01(r), clamp01(g), clamp01(b)
+        
+        return Vector((r, g, b, ca))
 
 def register():
     bpy.utils.register_class(CustomVertexPaintOperator)
