@@ -34,6 +34,9 @@ class CustomVertexPaintTool(WorkSpaceTool):
         layout.prop(vbrush, "blend", text="Blend Mode")
         layout.prop(vbrush, "strength", slider=True)
         
+        layout.separator()
+        layout.prop(props, "brush_alpha")
+        layout.prop(props, "apply_alpha")
 
         # Add color palette if available
         if vpalette:
@@ -113,8 +116,8 @@ class CustomVertexPaintOperator(bpy.types.Operator):
             for loop_index in face.loop_indices:
                 current_color = vertex_color_layer.data[loop_index].color
                 if self.apply_alpha:
-                     alpha = current_color.w
-                     current_color.w = alpha
+                     [_,_,_, alpha] = current_color
+                     current_color[3] = self.brush_alpha
                 new_color = self.blend_colors(current_color, brush_color, brush.strength, brush.blend)
                 vertex_color_layer.data[loop_index].color = new_color
         
